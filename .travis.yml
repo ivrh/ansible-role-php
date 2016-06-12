@@ -2,31 +2,45 @@
 sudo: required
 
 env:
-  - distribution: centos
-    version: 6
-    init: /sbin/init
-    run_opts: ""
-    playbook: test.yml
+  # Only test source install on latest supported OSes.
   - distribution: centos
     version: 7
     init: /usr/lib/systemd/systemd
     run_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-    playbook: centos-7-test.yml
+    SITE: source
+    PHP_VERSION: 7.0.5
   - distribution: ubuntu
     version: 14.04
     init: /sbin/init
     run_opts: ""
-    playbook: test.yml
-  # - distribution: ubuntu
-  #   version: 12.04
-  #   init: /sbin/init
-  #   run_opts: ""
-  #   playbook: test.yml
+    SITE: source
+    PHP_VERSION: 7.0.5
+
+  # Test package install on all supported OSes.
+  - distribution: centos
+    version: 7
+    init: /usr/lib/systemd/systemd
+    run_opts: "--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
+    SITE: package
+    PHP_VERSION: 7.0
+  - distribution: ubuntu
+    version: 14.04
+    init: /sbin/init
+    run_opts: ""
+    SITE: package
+    PHP_VERSION: 7.0
+  - distribution: ubuntu
+    version: 12.04
+    init: /sbin/init
+    run_opts: ""
+    SITE: package
+    PHP_VERSION: 5.6
 
 services:
   - docker
 
 before_install:
+  # - sudo apt-get update
   # Pull container
   - 'sudo docker pull ${distribution}:${version}'
   # Customize container
@@ -34,43 +48,37 @@ before_install:
 
 script:
   - container_id=$(mktemp)
-    # Run container in detached state
+  # Run container in detached state
   - 'sudo docker run --detach --volume="${PWD}":/etc/ansible/roles/role_under_test:ro ${run_opts} ${distribution}-${version}:ansible "${init}" > "${container_id}"'
 
+  # Install dependencies.
+  - 'sudo docker exec "$(cat ${container_id})" ansible-galaxy install -r /etc/ansible/roles/role_under_test/tests/requirements.yml'
+
   # Ansible syntax check.
-  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/${playbook} --syntax-check'
+  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/test-${SITE}.yml --syntax-check'
 
   # Test role.
-  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/${playbook}'
+  - 'travis_wait 30 sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/role_under_test/tests/test-${SITE}.yml'
 
   # Test role idempotence.
   - >
-    sudo docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/roles/role_under_test/tests/${playbook}
+    sudo docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/roles/role_under_test/tests/test-${SITE}.yml
     | grep -q 'changed=0.*failed=0'
     && (echo 'Idempotence test: pass' && exit 0)
     || (echo 'Idempotence test: fail' && exit 1)
 
-  # Some MySQL debugging (show all the logs).
-  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ls -lah /var/log
-  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm cat /var/log/mysql/error.log || true
-  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm cat /var/log/mysql.err || true
+  # Ensure PHP is installed and at the right version.
+  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm which php'
+  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm test -x /usr/bin/php'
 
-  # Check to make sure we can connect to MySQL via Unix socket.
-  - >
-    sudo docker exec "$(cat ${container_id})" mysql -u root -proot -e 'show databases;'
-    | grep -q 'information_schema'
-    && (echo 'MySQL running normally' && exit 0)
-    || (echo 'MySQL not running' && exit 1)
+  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm php --version'
+  - 'sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm /usr/bin/php --version | grep -qF "PHP $PHP_VERSION"'
 
-  # Check to make sure we can connect to MySQL via TCP.
-  - >
-    sudo docker exec "$(cat ${container_id})" mysql -u root -proot -h 127.0.0.1 -e 'show databases;'
-    | grep -q 'information_schema'
-    && (echo 'MySQL running normally' && exit 0)
-    || (echo 'MySQL not running' && exit 1)
+  # Ensure PHP configurations have taken effect.
+  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm php -i | grep 'memory_limit.*192'
 
   # Clean up
-  - sudo docker stop "$(cat ${container_id})"
+  - 'sudo docker stop "$(cat ${container_id})"'
 
 notifications:
   webhooks: https://galaxy.ansible.com/api/v1/notifications/

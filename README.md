@@ -1,112 +1,170 @@
-# Ansible Role: MySQL
+# Ansible Role: PHP
 
-[![Build Status](https://travis-ci.org/geerlingguy/ansible-role-mysql.svg?branch=master)](https://travis-ci.org/geerlingguy/ansible-role-mysql)
+[![Build Status](https://travis-ci.org/geerlingguy/ansible-role-php.svg?branch=master)](https://travis-ci.org/geerlingguy/ansible-role-php)
 
-Installs and configures MySQL or MariaDB server on RHEL/CentOS or Debian/Ubuntu servers.
+Installs PHP on RedHat/CentOS and Debian/Ubuntu servers.
 
 ## Requirements
 
-No special requirements; note that this role requires root access, so either run it in a playbook with a global `become: yes`, or invoke the role in your playbook like:
-
-    - hosts: database
-      roles:
-        - role: geerlingguy.mysql
-          become: yes
+If you're using an older LTS release of Ubuntu or RHEL, with an old/outdated version of PHP, you need to use a repo or PPA with a maintained PHP version, as this role only works with [PHP versions that are currently supported](http://php.net/supported-versions.php) by the PHP community.
 
 ## Role Variables
 
 Available variables are listed below, along with default values (see `defaults/main.yml`):
 
-    mysql_user_home: /root
+    php_packages: []
 
-The home directory inside which Python MySQL settings will be stored, which Ansible will use when connecting to MySQL. This should be the home directory of the user which runs this Ansible role.
+A list of the PHP packages to install (OS-specific by default). You'll likely want to install common packages like `php`, `php-cli`, `php-devel` and `php-pdo`, and you can add in whatever other packages you'd like (for example, `php-gd` for image manipulation, or `php-ldap` if you need to connect to an LDAP server for authentication).
 
-    mysql_root_password: root
+_Note: If you're using Debian/Ubuntu, you also need to install `libapache2-mod-fastcgi` (for cgi/PHP-FPM) or `libapache2-mod-php7.0` (or a similar package depending on PHP version) if you want to use `mod_php` with Apache._
 
-The MySQL root user account password.
+    php_enable_webserver: true
 
-    mysql_root_password_update: no
+If your usage of PHP is tied to a web server (e.g. Apache or Nginx), leave this default value. If you are using PHP server-side or to run some small application, set this value to `false` so this role doesn't attempt to interact with a web server.
 
-Whether to force update the MySQL root user's password. By default, this role will only change the root user's password when MySQL is first configured. You can force an update by setting this to `yes`.
+    php_webserver_daemon: "httpd"
 
-> Note: If you get an error like `ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)` after a failed or interrupted playbook run, this usually means the root password wasn't originally updated to begin with. Try either removing  the `.my.cnf` file inside the configured `mysql_user_home` or updating it and setting `password=''` (the insecure default password). Run the playbook again, with `mysql_root_password_update` set to `yes`, and the setup should complete.
+The default values for the HTTP server deamon are `httpd` (used by Apache) for RedHat/CentOS, or `apache2` (also used by Apache) for Debian/Ubuntu. If you are running another webserver (for example, `nginx`), change this value to the name of the daemon under which the webserver runs.
 
-    mysql_enabled_on_startup: yes
+    php_enablerepo: ""
 
-Whether MySQL should be enabled on startup.
+(RedHat/CentOS only) If you have enabled any additional repositories (might I suggest [geerlingguy.repo-epel](https://github.com/geerlingguy/ansible-role-repo-epel) or [geerlingguy.repo-remi](https://github.com/geerlingguy/ansible-role-repo-remi)), those repositories can be listed under this variable (e.g. `remi-php70,epel`). This can be handy, as an example, if you want to install the latest version of PHP 7.0, which is in the Remi repository.
 
-    overwrite_global_mycnf: yes
+    php_packages_state: "installed"
 
-Whether the global my.cnf should be overwritten each time this role is run. Setting this to `no` tells Ansible to only create the `my.cnf` file if it doesn't exist. This should be left at its default value (`yes`) if you'd like to use this role's variables to configure MySQL.
+If you have enabled any additional repositories such as [geerlingguy.repo-epel](https://github.com/geerlingguy/ansible-role-repo-epel) or [geerlingguy.repo-remi](https://github.com/geerlingguy/ansible-role-repo-remi), you may want an easy way to swap PHP versions on the fly. By default, this is set to 'installed'. You can now override this variable to 'latest'. Combined with php_enablerepo, a user now doesn't need to manually uninstall the existing PHP packages before installing them from a different repository.
 
-    mysql_config_include_files: []
+    php_executable: "php"
 
-A list of files that should override the default global my.cnf. Each item in the array requires a "src" parameter which is a path to a file. An optional "force" parameter can force the file to be updated each time ansible runs.
+The executable to run when calling PHP from the command line. You should only change this if running `php` on your server doesn't target the correct executable, or if you're using software collections on RHEL/CentOS and need to target a different version of PHP.
 
-    mysql_databases: []
+### PHP-FPM
 
-The MySQL databases to create. A database has the values `name`, `encoding` (defaults to `utf8`), `collation` (defaults to `utf8_general_ci`) and `replicate` (defaults to `1`, only used if replication is configured). The formats of these are the same as in the `mysql_db` module.
+PHP-FPM is a simple and robust FastCGI Process Manager for PHP. It can dramatically ease scaling of PHP apps and is the normal way of running PHP-based sites and apps when using a webserver like Nginx (though it can be used with other webservers just as easily).
 
-    mysql_users: []
+When using this role with PHP running as `php-fpm` instead of as a process inside a webserver (e.g. Apache's `mod_php`), you need to set the following variable to `true`:
 
-The MySQL users and their privileges. A user has the values `name`, `host` (defaults to `localhost`), `password`, `priv` (defaults to `*.*:USAGE`), `append_privs` (defaults to `no`),  `state`  (defaults to `present`). The formats of these are the same as in the `mysql_user` module.
+    php_enable_php_fpm: false
 
-    mysql_packages:
-      - mysql
-      - mysql-server
+If you're using Apache, you can easily get it configured to work with PHP-FPM using the [geerlingguy.apache-php-fpm](https://github.com/geerlingguy/ansible-role-apache-php-fpm) role.
 
-(OS-specific, RedHat/CentOS defaults listed here) Packages to be installed. In some situations, you may need to add additional packages, like `mysql-devel`.
+    php_fpm_listen: "127.0.0.1:9000"
+    php_fpm_listen_allowed_clients: "127.0.0.1"
+    php_fpm_pm_max_children: 50
+    php_fpm_pm_start_servers: 5
+    php_fpm_pm_min_spare_servers: 5
+    php_fpm_pm_max_spare_servers: 5
 
-    mysql_enablerepo: ""
+Specific settings inside the default `www.conf` PHP-FPM pool. If you'd like to manage additional settings, you can do so either by replacing the file with your own template or using `lineinfile` like this role does inside `tasks/configure.yml`.
 
-(RedHat/CentOS only) If you have enabled any additional repositories (might I suggest geerlingguy.repo-epel or geerlingguy.repo-remi), those repositories can be listed under this variable (e.g. `remi,epel`). This can be handy, as an example, if you want to install later versions of MySQL.
+### php.ini settings
 
-    mysql_port: "3306"
-    mysql_bind_address: '0.0.0.0'
-    mysql_datadir: /var/lib/mysql
+    php_use_managed_ini: true
 
-Default MySQL connection configuration.
+By default, all the extra defaults below are applied through the php.ini included with this role. You can self-manage your php.ini file (if you need more flexility in its configuration) by setting this to `false` (in which case all the below variables will be ignored).
 
-    mysql_log: ""
-    mysql_log_error: /var/log/mysqld.log
-    mysql_syslog_tag: mysqld
+    php_memory_limit: "256M"
+    php_max_execution_time: "60"
+    php_max_input_time: "60"
+    php_max_input_vars: "1000"
+    php_realpath_cache_size: "32K"
+    php_upload_max_filesize: "64M"
+    php_post_max_size: "32M"
+    php_date_timezone: "America/Chicago"
+    php_allow_url_fopen: "On"
+    php_sendmail_path: "/usr/sbin/sendmail -t -i"
+    php_output_buffering: "4096"
+    php_short_open_tag: false
+    php_error_reporting: "E_ALL & ~E_DEPRECATED & ~E_STRICT"
+    php_display_errors: "Off"
+    php_display_startup_errors: "On"
+    php_expose_php: "On"
+    php_session_cookie_lifetime: 0
+    php_session_gc_probability: 1
+    php_session_gc_divisor: 1000
+    php_session_gc_maxlifetime: 1440
+    php_session_save_handler: files
+    php_session_save_path: ''
 
-MySQL logging configuration. Setting `mysql_log` (the general query log) or `mysql_log_error` to `syslog` will make MySQL log to syslog using the `mysql_syslog_tag`.
+Various defaults for PHP. Only used if `php_use_managed_ini` is set to `true`.
 
-    mysql_slow_query_log_enabled: no
-    mysql_slow_query_log_file: /var/log/mysql-slow.log
-    mysql_slow_query_time: 2
+### OpCache-related Variables
 
-Slow query log settings. Note that the log file will be created by this role, but if you're running on a server with SELinux or AppArmor, you may need to add this path to the allowed paths for MySQL, or disable the mysql profile. For example, on Debian/Ubuntu, you can run `sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/usr.sbin.mysqld && sudo service apparmor restart`.
+The OpCache is included in PHP starting in version 5.5, and the following variables will only take effect if the version of PHP you have installed is 5.5 or greater.
 
-    mysql_key_buffer_size: "256M"
-    mysql_max_allowed_packet: "64M"
-    mysql_table_open_cache: "256"
-    [...]
+    php_opcache_enable: "1"
+    php_opcache_enable_cli: "0"
+    php_opcache_memory_consumption: "96"
+    php_opcache_interned_strings_buffer: "16"
+    php_opcache_max_accelerated_files: "4096"
+    php_opcache_max_wasted_percentage: "5"
+    php_opcache_validate_timestamps: "1"
+    php_opcache_revalidate_path: "0"
+    php_opcache_revalidate_freq: "2"
+    php_opcache_max_file_size: "0"
 
-The rest of the settings in `defaults/main.yml` control MySQL's memory usage. The default values are tuned for a server where MySQL can consume ~512 MB RAM, so you should consider adjusting them to suit your particular server better.
+OpCache ini directives that are often customized on a system. Make sure you have enough memory and file slots allocated in the OpCache (`php_opcache_memory_consumption`, in MB, and `php_opcache_max_accelerated_files`) to contain all the PHP code you are running. If not, you may get less-than-optimal performance!
 
-    mysql_server_id: "1"
-    mysql_max_binlog_size: "100M"
-    mysql_expire_logs_days: "10"
-    mysql_replication_role: ''
-    mysql_replication_master: ''
-    mysql_replication_user: []
+    php_opcache_conf_filename: [platform-specific]
 
-Replication settings. Set `mysql_server_id` and `mysql_replication_role` by server (e.g. the master would be ID `1`, with the `mysql_replication_role` of `master`, and the slave would be ID `2`, with the `mysql_replication_role` of `slave`). The `mysql_replication_user` uses the same keys as `mysql_users`, and is created on master servers, and used to replicate on all the slaves.
+The platform-specific opcache configuration filename. Generally the default should work, but in some cases, you may need to override the filename.
 
-### MariaDB usage
+### APCu-related Variables
 
-This role works with either MySQL or a compatible version of MariaDB. On RHEL/CentOS 7+, the mariadb database engine was substituted as the default MySQL replacement package. No modifications are necessary though all of the variables still reference 'mysql' instead of mariadb.
+    php_enable_apc: true
 
-#### Ubuntu 14.04 and 16.04 MariaDB configuration
+Whether to enable APCu. Other APCu variables will be ineffective if this is set to false.
 
-On Ubuntu, the package names are named differently, so the `mysql_package` variable needs to be altered. Set the following variables (at a minimum):
+    php_apc_shm_size: "96M"
+    php_apc_enable_cli: "0"
 
-    mysql_packages:
-      - mariadb-client
-      - mariadb-server
-      - python-mysqldb
+APCu ini directives that are often customized on a system. Set the `php_apc_shm_size` so it will hold all cache entries in memory with a little overhead (fragmentation or APC running out of memory will slow down PHP *dramatically*).
+
+    php_apc_conf_filename: [platform-specific]
+
+The platform-specific APC configuration filename. Generally the default should work, but in some cases, you may need to override the filename.
+
+#### Ensuring APC is installed
+
+If you use APC, you will need to make sure APC is installed (it is installed by default, but if you customize the `php_packages` list, you need to include APC in the list):
+
+  - *On RHEL/CentOS systems*: Make sure `php-pecl-apcu` is in the list of `php_packages`.
+  - *On Debian/Ubuntu systems*: Make sure `php-apcu` is in the list of `php_packages`.
+
+### Installing from Source
+
+If you need a specific version of PHP, or would like to test the latest (e.g. master) version of PHP, there's a good chance there's no suitable package already available in your platform's package manager. In these cases, you may choose to install PHP from source by compiling it directly.
+
+Note that source compilation takes *much* longer than installing from packages (PHP HEAD takes 5+ minutes to compile on a modern quad-core computer, just as a point of reference).
+
+    php_install_from_source: false
+
+Set this to `true` to install PHP from source instead of installing from packages.
+
+    php_source_version: "master"
+
+The version of PHP to install from source (a git branch, tag, or commit hash).
+
+    php_source_clone_dir: "~/php-src"
+    php_source_install_path: "/opt/php"
+    php_source_install_gmp_path: "/usr/include/x86_64-linux-gnu/gmp.h"
+
+Location where source will be cloned and installed, and the location of the GMP header file (which can be platform/distribution specific).
+
+    php_source_make_command: "make"
+
+Set the `make` command to `make --jobs=X` where `X` is the number of cores present on the server where PHP is being compiled. Will speed up compilation times dramatically if you have multiple cores.
+
+    php_source_configure_command: >
+      [...]
+
+The `./configure` command that will build the Makefile to be used for PHP compilation. Add in all the options you need for your particular environment. Using a folded scalar (`>`) allows you to define the variable over multiple lines, which is extremely helpful for legibility and source control!
+
+A few other notes/caveats for specific configurations:
+
+  - **Apache with `mpm_prefork`**: If you're using Apache with prefork as a webserver for PHP, you will need to make sure `apxs2` is available on your system (e.g. by installing `apache2-prefork-dev` in Ubuntu), and you will need to make sure the option `--with-apxs2` is defined in `php_source_configure_command`. Finally, you will need to make sure the `mpm_prefork` module is loaded instead of `mpm_worker` or `mpm_event`, and likely add a `phpX.conf` (where `X` is the major version of PHP) configuration file to the Apache module config folder with contents like [`php7.conf`](https://gist.github.com/geerlingguy/5ae5445f28e71264e8c1).
+  - **Apache with `mpm_event` or `mpm_worker`**: If you're using Apache with event or worker as a webserver for PHP, you will need to compile PHP with FPM. Make sure the option `--enable-fpm` is defined in `php_source_configure_command`. You'll also need to make sure Apache's support for CGI and event is installed (e.g. by installing `apache2-mpm-event` and `libapache2-mod-fastcgi`) and the `mpm_event` module is loaded.
+  - **Nginx**: If you're using Nginx as a webserver for PHP, you will need to compile PHP with FPM. Make sure the option `--enable-fpm` is defined in `php_source_configure_command`.
 
 ## Dependencies
 
@@ -114,25 +172,28 @@ None.
 
 ## Example Playbook
 
-    - hosts: db-servers
-      become: yes
+    - hosts: webservers
       vars_files:
         - vars/main.yml
       roles:
-        - { role: geerlingguy.mysql }
+        - { role: geerlingguy.php }
 
 *Inside `vars/main.yml`*:
 
-    mysql_root_password: super-secure-password
-    mysql_databases:
-      - name: example_db
-        encoding: latin1
-        collation: latin1_general_ci
-    mysql_users:
-      - name: example_user
-        host: "%"
-        password: similarly-secure-password
-        priv: "example_db.*:ALL"
+    php_memory_limit: "128M"
+    php_max_execution_time: "90"
+    php_upload_max_filesize: "256M"
+    php_packages:
+      - php
+      - php-cli
+      - php-common
+      - php-devel
+      - php-gd
+      - php-mbstring
+      - php-pdo
+      - php-pecl-apcu
+      - php-xml
+      ...
 
 ## License
 
